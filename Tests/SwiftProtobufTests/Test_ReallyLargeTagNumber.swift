@@ -15,19 +15,19 @@
 import Foundation
 import XCTest
 
-class Test_ReallyLargeTagNumber: XCTestCase {
+final class Test_ReallyLargeTagNumber: XCTestCase {
 
     func test_ReallyLargeTagNumber() {
-        var m = ProtobufUnittest_TestReallyLargeTagNumber()
+        var m = SwiftProtoTesting_TestReallyLargeTagNumber()
         m.a = 1
         m.bb = 2
 
         do {
-            let encoded = try m.serializedData()
-            XCTAssertEqual(encoded, Data([8, 1, 248, 255, 255, 255, 7, 2]))
+            let encoded: [UInt8] = try m.serializedBytes()
+            XCTAssertEqual(encoded, [8, 1, 248, 255, 255, 255, 7, 2])
 
             do {
-                let decoded = try ProtobufUnittest_TestReallyLargeTagNumber(serializedData: encoded)
+                let decoded = try SwiftProtoTesting_TestReallyLargeTagNumber(serializedBytes: encoded)
                 XCTAssertEqual(2, decoded.bb)
                 XCTAssertEqual(1, decoded.a)
                 XCTAssertEqual(m, decoded)

@@ -31,7 +31,7 @@ When doing a release:
    1. Run our tool to ensure the versions are all in sync:
 
       ```
-      $ DevTools/LibraryVersions.py --validate
+      DevTools/LibraryVersions.py --validate
       ```
 
       This will run silently if everything was ok; if something was wrong, you'll need to figure
@@ -48,32 +48,14 @@ When doing a release:
    For the description call out any major things in that release.  Usually a short summary and
    then a reference to the pull request for more info is enough.
 
-1. Publish the CocoaPod
-
-   1. Do a final sanity check that CocoaPods is happy with the release you just made, in the project
-      directory:
+1. Publish the `SwiftProtobuf.podspec`
 
       ```
-      $ pod spec lint SwiftProtobuf.podspec
+      pod trunk push SwiftProtobuf.podspec
       ```
 
-      _Note:_ This uses that local copy of the podspec, but pulls the code off the tag on github.
-
-      If this doesn't pass, you have two options:
-
-      - If the problem is just with the `podspec`, you can edit it, and try again.  The version of
-        the podspec in the branch doesn't really matter, so just ensure things get fixed on main
-        for the future.
-      - If the problem is within the code, you'll likely need to abandon this release.  Fix the
-        code and start the process over cutting a new tag.
-
-   1. Publish the pod:
-
-      ```
-      $ pod trunk push SwiftProtobuf.podspec
-      ```
-
-      _Note:_ This uses that local copy of the podspec.
+      _Note:_ This uses that local copy of `SwiftProtobuf.podspec`, but checks
+      against the sources on github.
 
 1. Bump the version on _main_
 
@@ -81,7 +63,7 @@ When doing a release:
    bump it to a new revision:
 
    ```
-   $ DevTools/LibraryVersions.py [a.b.c]
+   DevTools/LibraryVersions.py [a.b.c]
    ```
 
    Where _c_ is one higher than the release that was just done.

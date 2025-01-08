@@ -14,14 +14,28 @@
 
 import Foundation
 import XCTest
+
 @testable import SwiftProtobuf
 
-class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
-    typealias MessageTestType = ProtobufUnittest_TestEmptyMessage
+final class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
+    typealias MessageTestType = SwiftProtoTesting_TestEmptyMessage
+
+    var encodeWithoutUnknowns: TextFormatEncodingOptions {
+        var options = TextFormatEncodingOptions()
+        options.printUnknownFields = false
+        return options
+    }
+
+    var decodeIgnoreAllUnknowns: TextFormatDecodingOptions {
+        var options = TextFormatDecodingOptions()
+        options.ignoreUnknownFields = true
+        options.ignoreUnknownExtensionFields = true
+        return options
+    }
 
     func test_unknown_varint() throws {
-        let bytes = Data([8, 0])
-        let msg = try MessageTestType(serializedData: bytes)
+        let bytes: [UInt8] = [8, 0]
+        let msg = try MessageTestType(serializedBytes: bytes)
         let text = msg.textFormatString()
         XCTAssertEqual(text, "1: 0\n")
 
@@ -32,15 +46,16 @@ class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
             // This is what should have happened.
         }
 
-        var options = TextFormatEncodingOptions()
-        options.printUnknownFields = false
-        let textWithoutUnknowns = msg.textFormatString(options: options)
+        let msg2 = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknowns)  // Shouldn't throw
+        XCTAssertEqual(try msg2.serializedBytes(), [])
+
+        let textWithoutUnknowns = msg.textFormatString(options: encodeWithoutUnknowns)
         XCTAssertEqual(textWithoutUnknowns, "")
     }
 
     func test_unknown_fixed64() throws {
-        let bytes = Data([9, 0, 1, 2, 3, 4, 5, 6, 7])
-        let msg = try MessageTestType(serializedData: bytes)
+        let bytes: [UInt8] = [9, 0, 1, 2, 3, 4, 5, 6, 7]
+        let msg = try MessageTestType(serializedBytes: bytes)
         let text = msg.textFormatString()
         XCTAssertEqual(text, "1: 0x0706050403020100\n")
 
@@ -51,15 +66,16 @@ class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
             // This is what should have happened.
         }
 
-        var options = TextFormatEncodingOptions()
-        options.printUnknownFields = false
-        let textWithoutUnknowns = msg.textFormatString(options: options)
+        let msg2 = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknowns)  // Shouldn't throw
+        XCTAssertEqual(try msg2.serializedBytes(), [])
+
+        let textWithoutUnknowns = msg.textFormatString(options: encodeWithoutUnknowns)
         XCTAssertEqual(textWithoutUnknowns, "")
     }
 
     func test_unknown_lengthDelimited_string() throws {
-        let bytes = Data([10, 3, 97, 98, 99])
-        let msg = try MessageTestType(serializedData: bytes)
+        let bytes: [UInt8] = [10, 3, 97, 98, 99]
+        let msg = try MessageTestType(serializedBytes: bytes)
         let text = msg.textFormatString()
         XCTAssertEqual(text, "1: \"abc\"\n")
 
@@ -70,16 +86,17 @@ class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
             // This is what should have happened.
         }
 
-        var options = TextFormatEncodingOptions()
-        options.printUnknownFields = false
-        let textWithoutUnknowns = msg.textFormatString(options: options)
+        let msg2 = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknowns)  // Shouldn't throw
+        XCTAssertEqual(try msg2.serializedBytes(), [])
+
+        let textWithoutUnknowns = msg.textFormatString(options: encodeWithoutUnknowns)
         XCTAssertEqual(textWithoutUnknowns, "")
     }
 
     func test_unknown_lengthDelimited_message() throws {
         // If inner data looks like a message, display it as such:
-        let bytes = Data([10, 6, 8, 1, 18, 2, 97, 98])
-        let msg = try MessageTestType(serializedData: bytes)
+        let bytes: [UInt8] = [10, 6, 8, 1, 18, 2, 97, 98]
+        let msg = try MessageTestType(serializedBytes: bytes)
         let text = msg.textFormatString()
         XCTAssertEqual(text, "1 {\n  1: 1\n  2: \"ab\"\n}\n")
 
@@ -90,17 +107,18 @@ class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
             // This is what should have happened.
         }
 
-        var options = TextFormatEncodingOptions()
-        options.printUnknownFields = false
-        let textWithoutUnknowns = msg.textFormatString(options: options)
+        let msg2 = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknowns)  // Shouldn't throw
+        XCTAssertEqual(try msg2.serializedBytes(), [])
+
+        let textWithoutUnknowns = msg.textFormatString(options: encodeWithoutUnknowns)
         XCTAssertEqual(textWithoutUnknowns, "")
     }
 
     func test_unknown_lengthDelimited_notmessage() throws {
         // Inner data is almost a message, but has an error at the end...
         // This should cause it to be displayed as a string.
-        let bytes = Data([10, 6, 8, 1, 18, 3, 97, 98])
-        let msg = try MessageTestType(serializedData: bytes)
+        let bytes: [UInt8] = [10, 6, 8, 1, 18, 3, 97, 98]
+        let msg = try MessageTestType(serializedBytes: bytes)
         let text = msg.textFormatString()
         XCTAssertEqual(text, "1: \"\\b\\001\\022\\003ab\"\n")
 
@@ -111,15 +129,56 @@ class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
             // This is what should have happened.
         }
 
-        var options = TextFormatEncodingOptions()
-        options.printUnknownFields = false
-        let textWithoutUnknowns = msg.textFormatString(options: options)
+        let msg2 = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknowns)  // Shouldn't throw
+        XCTAssertEqual(try msg2.serializedBytes(), [])
+
+        let textWithoutUnknowns = msg.textFormatString(options: encodeWithoutUnknowns)
+        XCTAssertEqual(textWithoutUnknowns, "")
+    }
+
+    func test_unknown_lengthDelimited_not_nested_message() throws {
+        let bytes: [UInt8] = [8, 1, 18, 6, 65, 66, 67, 68, 69, 70]
+        let msg = try MessageTestType(serializedBytes: bytes)
+        let text = msg.textFormatString()
+        XCTAssertEqual(text, "1: 1\n2: \"ABCDEF\"\n")
+
+        do {
+            let _ = try MessageTestType(textFormatString: text)
+            XCTFail("Shouldn't get here")
+        } catch TextFormatDecodingError.unknownField {
+            // This is what should have happened.
+        }
+
+        let msg2 = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknowns)  // Shouldn't throw
+        XCTAssertEqual(try msg2.serializedBytes(), [])
+
+        let textWithoutUnknowns = msg.textFormatString(options: encodeWithoutUnknowns)
+        XCTAssertEqual(textWithoutUnknowns, "")
+    }
+
+    func test_unknown_lengthDelimited_zero_length() throws {
+        let bytes: [UInt8] = [8, 1, 18, 0]
+        let msg = try MessageTestType(serializedBytes: bytes)
+        let text = msg.textFormatString()
+        XCTAssertEqual(text, "1: 1\n2: \"\"\n")
+
+        do {
+            let _ = try MessageTestType(textFormatString: text)
+            XCTFail("Shouldn't get here")
+        } catch TextFormatDecodingError.unknownField {
+            // This is what should have happened.
+        }
+
+        let msg2 = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknowns)  // Shouldn't throw
+        XCTAssertEqual(try msg2.serializedBytes(), [])
+
+        let textWithoutUnknowns = msg.textFormatString(options: encodeWithoutUnknowns)
         XCTAssertEqual(textWithoutUnknowns, "")
     }
 
     func test_unknown_lengthDelimited_nested_message() throws {
-        let bytes = Data([8, 1, 18, 6, 8, 2, 18, 2, 8, 3])
-        let msg = try MessageTestType(serializedData: bytes)
+        let bytes: [UInt8] = [8, 1, 18, 6, 8, 2, 18, 2, 8, 3]
+        let msg = try MessageTestType(serializedBytes: bytes)
         let text = msg.textFormatString()
         XCTAssertEqual(text, "1: 1\n2 {\n  1: 2\n  2 {\n    1: 3\n  }\n}\n")
 
@@ -130,9 +189,30 @@ class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
             // This is what should have happened.
         }
 
-        var options = TextFormatEncodingOptions()
-        options.printUnknownFields = false
-        let textWithoutUnknowns = msg.textFormatString(options: options)
+        let msg2 = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknowns)  // Shouldn't throw
+        XCTAssertEqual(try msg2.serializedBytes(), [])
+
+        let textWithoutUnknowns = msg.textFormatString(options: encodeWithoutUnknowns)
+        XCTAssertEqual(textWithoutUnknowns, "")
+    }
+
+    func test_unknown_lengthDelimited_nested_message_zero_length() throws {
+        let bytes: [UInt8] = [8, 1, 18, 4, 8, 2, 18, 0]
+        let msg = try MessageTestType(serializedBytes: bytes)
+        let text = msg.textFormatString()
+        XCTAssertEqual(text, "1: 1\n2 {\n  1: 2\n  2: \"\"\n}\n")
+
+        do {
+            let _ = try MessageTestType(textFormatString: text)
+            XCTFail("Shouldn't get here")
+        } catch TextFormatDecodingError.unknownField {
+            // This is what should have happened.
+        }
+
+        let msg2 = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknowns)  // Shouldn't throw
+        XCTAssertEqual(try msg2.serializedBytes(), [])
+
+        let textWithoutUnknowns = msg.textFormatString(options: encodeWithoutUnknowns)
         XCTAssertEqual(textWithoutUnknowns, "")
     }
 
@@ -146,7 +226,8 @@ class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
         lengths.append(0)
         for _ in 0..<(kNestingDepth - 1) {
             lengths.append(
-                kTagSize + Int32(Varint.encodedSize(of: lengths.last!)) + lengths.last!)
+                kTagSize + Int32(Varint.encodedSize(of: lengths.last!)) + lengths.last!
+            )
         }
 
         var bytes = Data()
@@ -155,12 +236,14 @@ class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
             bytes.appendVarInt(value: len)
         }
 
-        let msg = try MessageTestType(serializedData: bytes)
+        let msg = try MessageTestType(serializedBytes: Array(bytes))
         let text = msg.textFormatString()
         // Internally, the limit is 10, so we'll get 10 objects and then a
         // string for the bytes.
-        let expectedPrefix = "1 {\n  1 {\n    1 {\n      1 {\n        1 {\n          1 {\n            1 {\n              1 {\n                1 {\n                  1 {\n                    1: \""
-        let expectedSuffix = "\"\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}\n"
+        let expectedPrefix =
+            "1 {\n  1 {\n    1 {\n      1 {\n        1 {\n          1 {\n            1 {\n              1 {\n                1 {\n                  1 {\n                    1: \""
+        let expectedSuffix =
+            "\"\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}\n"
         XCTAssertTrue(text.hasPrefix(expectedPrefix))
         XCTAssertTrue(text.hasSuffix(expectedSuffix))
 
@@ -171,15 +254,29 @@ class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
             // This is what should have happened.
         }
 
-        var options = TextFormatEncodingOptions()
-        options.printUnknownFields = false
-        let textWithoutUnknowns = msg.textFormatString(options: options)
+        // Since unknowns are limited to a depth of 10, we should be able to since the inner most
+        // messages are just a string (bytes) blob.
+        let msg2 = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknowns)  // Shouldn't throw
+        XCTAssertEqual(try msg2.serializedBytes(), [])
+
+        // Since unknowns are limited to depth of 10, lower the depth limit on to confirm we stop
+        // within the unknowns correctly.
+        do {
+            var decodeIgnoreAllUnknownsWithDepthLimit = decodeIgnoreAllUnknowns
+            decodeIgnoreAllUnknownsWithDepthLimit.messageDepthLimit = 5
+            let _ = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknownsWithDepthLimit)
+            XCTFail("Shouldn't get here")
+        } catch TextFormatDecodingError.messageDepthLimit {
+            // This is what should have happened.
+        }
+
+        let textWithoutUnknowns = msg.textFormatString(options: encodeWithoutUnknowns)
         XCTAssertEqual(textWithoutUnknowns, "")
     }
 
     func test_unknown_group() throws {
-        let bytes = Data([8, 1, 19, 26, 2, 8, 1, 20])
-        let msg = try MessageTestType(serializedData: bytes)
+        let bytes: [UInt8] = [8, 1, 19, 26, 2, 8, 1, 20]
+        let msg = try MessageTestType(serializedBytes: bytes)
         let text = msg.textFormatString()
         XCTAssertEqual(text, "1: 1\n2 {\n  3 {\n    1: 1\n  }\n}\n")
 
@@ -190,15 +287,16 @@ class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
             // This is what should have happened.
         }
 
-        var options = TextFormatEncodingOptions()
-        options.printUnknownFields = false
-        let textWithoutUnknowns = msg.textFormatString(options: options)
+        let msg2 = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknowns)  // Shouldn't throw
+        XCTAssertEqual(try msg2.serializedBytes(), [])
+
+        let textWithoutUnknowns = msg.textFormatString(options: encodeWithoutUnknowns)
         XCTAssertEqual(textWithoutUnknowns, "")
     }
 
     func test_unknown_nested_group() throws {
-        let bytes = Data([8, 1, 19, 26, 2, 8, 1, 35, 40, 7, 36, 20])
-        let msg = try MessageTestType(serializedData: bytes)
+        let bytes: [UInt8] = [8, 1, 19, 26, 2, 8, 1, 35, 40, 7, 36, 20]
+        let msg = try MessageTestType(serializedBytes: bytes)
         let text = msg.textFormatString()
         XCTAssertEqual(text, "1: 1\n2 {\n  3 {\n    1: 1\n  }\n  4 {\n    5: 7\n  }\n}\n")
 
@@ -209,9 +307,10 @@ class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
             // This is what should have happened.
         }
 
-        var options = TextFormatEncodingOptions()
-        options.printUnknownFields = false
-        let textWithoutUnknowns = msg.textFormatString(options: options)
+        let msg2 = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknowns)  // Shouldn't throw
+        XCTAssertEqual(try msg2.serializedBytes(), [])
+
+        let textWithoutUnknowns = msg.textFormatString(options: encodeWithoutUnknowns)
         XCTAssertEqual(textWithoutUnknowns, "")
     }
 
@@ -221,8 +320,10 @@ class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
         let kTagStart = FieldTag(fieldNumber: kFieldNum, wireFormat: .startGroup)
         let kTagEnd = FieldTag(fieldNumber: kFieldNum, wireFormat: .endGroup)
 
-        var bytes = Data(capacity: kNestingDepth *
-          (Varint.encodedSize(of: kTagStart.rawValue) + Varint.encodedSize(of: kTagEnd.rawValue)))
+        var bytes = Data(
+            capacity: kNestingDepth
+                * (Varint.encodedSize(of: kTagStart.rawValue) + Varint.encodedSize(of: kTagEnd.rawValue))
+        )
         for _ in 0..<kNestingDepth {
             bytes.appendStartField(tag: kTagStart)
         }
@@ -259,15 +360,20 @@ class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
             // This is what should have happened.
         }
 
-        var options = TextFormatEncodingOptions()
-        options.printUnknownFields = false
-        let textWithoutUnknowns = msg.textFormatString(options: options)
+        do {
+            let _ = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknowns)
+            XCTFail("Shouldn't get here")
+        } catch TextFormatDecodingError.messageDepthLimit {
+            // This is what should have happened.
+        }
+
+        let textWithoutUnknowns = msg.textFormatString(options: encodeWithoutUnknowns)
         XCTAssertEqual(textWithoutUnknowns, "")
     }
 
     func test_unknown_fixed32() throws {
-        let bytes = Data([13, 0, 1, 2, 3])
-        let msg = try MessageTestType(serializedData: bytes)
+        let bytes: [UInt8] = [13, 0, 1, 2, 3]
+        let msg = try MessageTestType(serializedBytes: bytes)
         let text = msg.textFormatString()
         XCTAssertEqual(text, "1: 0x03020100\n")
 
@@ -278,9 +384,35 @@ class Test_TextFormat_Unknown: XCTestCase, PBTestHelpers {
             // This is what should have happened.
         }
 
-        var options = TextFormatEncodingOptions()
-        options.printUnknownFields = false
-        let textWithoutUnknowns = msg.textFormatString(options: options)
+        let msg2 = try MessageTestType(textFormatString: text, options: decodeIgnoreAllUnknowns)  // Shouldn't throw
+        XCTAssertEqual(try msg2.serializedBytes(), [])
+
+        let textWithoutUnknowns = msg.textFormatString(options: encodeWithoutUnknowns)
         XCTAssertEqual(textWithoutUnknowns, "")
+    }
+
+    func test_unknown_fieldnum_too_big() {
+        // The max field number is 536,870,911, so anything that takes more digits, should
+        // fail as malformed.
+
+        var opts = TextFormatDecodingOptions()
+        opts.ignoreUnknownFields = true
+
+        // Max value, will pass becuase of ignoring unknowns.
+        do {
+            let _ = try MessageTestType(textFormatString: "536870911: 1", options: opts)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        // One more digit, should fail as malformed
+        do {
+            let _ = try MessageTestType(textFormatString: "1536870911: 1", options: opts)
+            XCTFail("Shouldn't get here")
+        } catch TextFormatDecodingError.malformedText {
+            // This is what should have happened.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 }
