@@ -17,16 +17,13 @@ behavior are always appreciated.
 
 ## Swift Language Support
 
-The goal is to always support "one full major version”, which basically
-means if the current official release of Swift is `X.Y`, the library will
-support back to `X-1.Y`.  That is, when Swift 4.2 was released, the minimum
-for support got moved up to 3.2.
+SwiftProtobuf tries to support back to the oldest of:
 
-NOTE: While things like Swift 4.1 existed from a packaging/install pov,
-`swiftc` does not support `4.1` as a value for `-swift-version`, so the minimum
-can't be made to something like _4.1_ because that can't be targeted. So when
-the minimum would move to a version like that, it instead says on the previous
-minimum that was targetable (4.0 in the 4.1 case).
+*  The
+   [Swift NIO guidelines support version](https://github.com/apple/swift-nio#supported-versions).
+*  Apple’s App Store submission requirements. This is announced on the
+   [Apple Developer News](https://developer.apple.com/news/) page; an
+   [example from March 2023](https://developer.apple.com/news/?id=jd9wcyov).
 
 When the minimum Swift version gets updated, update:
 - The `README.md` in the root of the project
@@ -36,6 +33,16 @@ When the minimum Swift version gets updated, update:
 - Update `Package.swift` and `SwiftProtobuf.podspec` files to list the
   versions supported. Eventually the version specific `Package@*.swift`
   files will go away.
+
+  NOTE: As the minimum Xcode version updates, that also implicitly updates
+  the minimum supports Apple OS versions. Those updates also go into the
+  podspec file. If the an older Xcode might support the NIO Swift version,
+  we still listed the lower Swift version but higher Xcode version in the
+  `README.md` and we adopt the deployment minimums from the Xcode in
+  `SwiftProtobuf.podspec`.
+
+  The deployment minimums for Xcode versions can be found on the [Developer
+  Support: Xcode](https://developer.apple.com/support/xcode/) page.
 
 ## Field Storage
 

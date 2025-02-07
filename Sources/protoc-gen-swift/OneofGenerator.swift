@@ -13,8 +13,8 @@
 ///
 // -----------------------------------------------------------------------------
 import Foundation
-import SwiftProtobufPluginLibrary
 import SwiftProtobuf
+import SwiftProtobufPluginLibrary
 
 class OneofGenerator {
     /// Custom FieldGenerator that caches come calculated strings, and bridges
@@ -40,24 +40,26 @@ class OneofGenerator {
         }
 
         // Only valid on message fields.
-        var messageType: Descriptor { return fieldDescriptor.messageType }
+        var messageType: Descriptor? { fieldDescriptor.messageType }
 
-        init(descriptor: FieldDescriptor, namer: SwiftProtobufNamer) {
+        init(descriptor: FieldDescriptor, generatorOptions: GeneratorOptions, namer: SwiftProtobufNamer) {
             precondition(descriptor.oneofIndex != nil)
 
             // Set after creation.
             oneof = nil
             group = -1
 
-            let names = namer.messagePropertyNames(field: descriptor,
-                                                   prefixed: ".",
-                                                   includeHasAndClear: false)
+            let names = namer.messagePropertyNames(
+                field: descriptor,
+                prefixed: ".",
+                includeHasAndClear: false
+            )
             swiftName = names.name
             dottedSwiftName = names.prefixed
             swiftType = descriptor.swiftType(namer: namer)
             swiftDefaultValue = descriptor.swiftDefaultValue(namer: namer)
             protoGenericType = descriptor.protoGenericType
-            comments = descriptor.protoSourceComments()
+            comments = descriptor.protoSourceCommentsWithDeprecation(generatorOptions: generatorOptions)
 
             super.init(descriptor: descriptor)
         }
@@ -98,7 +100,7 @@ class OneofGenerator {
         }
 
         var generateTraverseUsesLocals: Bool {
-            return oneof.generateTraverseUsesLocals
+            oneof.generateTraverseUsesLocals
         }
 
         func generateTraverse(printer p: inout CodePrinter) {
@@ -123,14 +125,18 @@ class OneofGenerator {
     private let underscoreSwiftFieldName: String
     private let storedProperty: String
 
-    init(descriptor: OneofDescriptor, generatorOptions: GeneratorOptions, namer: SwiftProtobufNamer, usesHeapStorage: Bool) {
-        precondition(!descriptor.isSynthetic)
+    init(
+        descriptor: OneofDescriptor,
+        generatorOptions: GeneratorOptions,
+        namer: SwiftProtobufNamer,
+        usesHeapStorage: Bool
+    ) {
         self.oneofDescriptor = descriptor
         self.generatorOptions = generatorOptions
         self.namer = namer
         self.usesHeapStorage = usesHeapStorage
 
-        comments = descriptor.protoSourceComments()
+        comments = descriptor.protoSourceComments(generatorOptions: generatorOptions)
 
         swiftRelativeName = namer.relativeName(oneof: descriptor)
         swiftFullName = namer.fullName(oneof: descriptor)
@@ -145,33 +151,39 @@ class OneofGenerator {
         }
 
         fields = descriptor.fields.map {
-            return MemberFieldGenerator(descriptor: $0, namer: namer)
+            MemberFieldGenerator(
+                descriptor: $0,
+                generatorOptions: generatorOptions,
+                namer: namer
+            )
         }
-        fieldsSortedByNumber = fields.sorted {$0.number < $1.number}
+        fieldsSortedByNumber = fields.sorted { $0.number < $1.number }
 
         // Bucked these fields in continuous chunks based on the other fields
         // in the parent and the parent's extension ranges. Insert the `start`
         // from each extension range as an easy way to check for them being
         // mixed in between the fields.
         var parentNumbers = descriptor.containingType.fields.map { Int($0.number) }
-        parentNumbers.append(contentsOf: descriptor.containingType.normalizedExtensionRanges.map { Int($0.start) })
+        parentNumbers.append(
+            contentsOf: descriptor.containingType._normalizedExtensionRanges.map { Int($0.lowerBound) }
+        )
         var parentNumbersIterator = parentNumbers.sorted(by: { $0 < $1 }).makeIterator()
         var nextParentFieldNumber = parentNumbersIterator.next()
         var grouped = [[MemberFieldGenerator]]()
         var currentGroup = [MemberFieldGenerator]()
         for f in fieldsSortedByNumber {
-          let nextFieldNumber = f.number
-          if nextParentFieldNumber != nextFieldNumber {
-            if !currentGroup.isEmpty {
-                grouped.append(currentGroup)
-                currentGroup.removeAll()
+            let nextFieldNumber = f.number
+            if nextParentFieldNumber != nextFieldNumber {
+                if !currentGroup.isEmpty {
+                    grouped.append(currentGroup)
+                    currentGroup.removeAll()
+                }
+                while nextParentFieldNumber != nextFieldNumber {
+                    nextParentFieldNumber = parentNumbersIterator.next()
+                }
             }
-            while nextParentFieldNumber != nextFieldNumber {
-                nextParentFieldNumber = parentNumbersIterator.next()
-            }
-          }
-          currentGroup.append(f)
-          nextParentFieldNumber = parentNumbersIterator.next()
+            currentGroup.append(f)
+            nextParentFieldNumber = parentNumbersIterator.next()
         }
         if !currentGroup.isEmpty {
             grouped.append(currentGroup)
@@ -188,7 +200,7 @@ class OneofGenerator {
         }
     }
 
-    func fieldGenerator(forFieldNumber fieldNumber: Int) -> FieldGenerator {
+    func fieldGenerator(forFieldNumber fieldNumber: Int) -> any FieldGenerator {
         for f in fields {
             if f.number == fieldNumber {
                 return f
@@ -200,121 +212,87 @@ class OneofGenerator {
     func generateMainEnum(printer p: inout CodePrinter) {
         let visibility = generatorOptions.visibilitySourceSnippet
 
+        // Data isn't marked as Sendable on linux until Swift 5.9, so until
+        // then all oneof enums with Data fields need to be manually marked as
+        // @unchecked.
+        let hasBytesField = oneofDescriptor.fields.contains { $0.type == .bytes }
+        let sendableConformance = hasBytesField ? "@unchecked Sendable" : "Sendable"
+
         // Repeat the comment from the oneof to provide some context
         // to this enum we generated.
         p.print(
-            "\n",
-            comments,
-            "\(visibility)enum \(swiftRelativeName): Equatable {\n")
-        p.indent()
+            "",
+            "\(comments)\(visibility)enum \(swiftRelativeName): Equatable, \(sendableConformance) {"
+        )
+        p.withIndentation { p in
+            // Oneof case for each ivar
+            for f in fields {
+                p.print("\(f.comments)case \(f.swiftName)(\(f.swiftType))")
+            }
 
-        // Oneof case for each ivar
-        for f in fields {
-            p.print(
-                f.comments,
-                "case \(f.swiftName)(\(f.swiftType))\n")
+            // A helper for isInitialized
+            let fieldsToCheck = fields.filter {
+                $0.isGroupOrMessage && $0.messageType!.containsRequiredFields()
+            }
+            if !fieldsToCheck.isEmpty {
+                p.print(
+                    "",
+                    "fileprivate var isInitialized: Bool {"
+                )
+                p.withIndentation { p in
+                    if fieldsToCheck.count == 1 {
+                        let f = fieldsToCheck.first!
+                        p.print(
+                            "guard case \(f.dottedSwiftName)(let v) = self else {return true}",
+                            "return v.isInitialized"
+                        )
+                    } else if fieldsToCheck.count > 1 {
+                        p.print(
+                            """
+                            // The use of inline closures is to circumvent an issue where the compiler
+                            // allocates stack space for every case branch when no optimizations are
+                            // enabled. https://github.com/apple/swift-protobuf/issues/1034
+                            switch self {
+                            """
+                        )
+                        for f in fieldsToCheck {
+                            p.print("case \(f.dottedSwiftName): return {")
+                            p.printIndented(
+                                "guard case \(f.dottedSwiftName)(let v) = self else { preconditionFailure() }",
+                                "return v.isInitialized"
+                            )
+                            p.print("}()")
+                        }
+                        // If there were other cases, add a default.
+                        if fieldsToCheck.count != fields.count {
+                            p.print("default: return true")
+                        }
+                        p.print("}")
+                    }
+                }
+                p.print("}")
+            }
+            p.print()
         }
-
-        // A helper for isInitialized
-        let fieldsToCheck = fields.filter {
-            $0.isGroupOrMessage && $0.messageType.containsRequiredFields()
-        }
-        if !fieldsToCheck.isEmpty {
-          p.print(
-              "\n",
-              "fileprivate var isInitialized: Bool {\n")
-          p.indent()
-          if fieldsToCheck.count == 1 {
-              let f = fieldsToCheck.first!
-              p.print(
-                  "guard case \(f.dottedSwiftName)(let v) = self else {return true}\n",
-                  "return v.isInitialized\n")
-          } else if fieldsToCheck.count > 1 {
-              p.print(
-                  "// The use of inline closures is to circumvent an issue where the compiler\n",
-                  "// allocates stack space for every case branch when no optimizations are\n",
-                  "// enabled. https://github.com/apple/swift-protobuf/issues/1034\n",
-                  "switch self {\n")
-              for f in fieldsToCheck {
-                  p.print("case \(f.dottedSwiftName): return {\n")
-                  p.indent()
-                  p.print("guard case \(f.dottedSwiftName)(let v) = self else { preconditionFailure() }\n")
-                  p.print("return v.isInitialized\n")
-                  p.outdent()
-                  p.print("}()\n")
-              }
-              // If there were other cases, add a default.
-              if fieldsToCheck.count != fields.count {
-                  p.print("default: return true\n")
-              }
-              p.print("}\n")
-          }
-          p.outdent()
-          p.print("}\n")
-        }
-
-        // Equatable conformance
-        p.print("\n")
-        p.outdent()
-        p.print("#if !swift(>=4.1)\n")
-        p.indent()
-        p.print(
-            "\(visibility)static func ==(lhs: \(swiftFullName), rhs: \(swiftFullName)) -> Bool {\n")
-        p.indent()
-        p.print(
-            "// The use of inline closures is to circumvent an issue where the compiler\n",
-            "// allocates stack space for every case branch when no optimizations are\n",
-            "// enabled. https://github.com/apple/swift-protobuf/issues/1034\n",
-            "switch (lhs, rhs) {\n")
-        for f in fields {
-            p.print(
-                "case (\(f.dottedSwiftName), \(f.dottedSwiftName)): return {\n")
-          p.indent()
-          p.print(
-                "guard case \(f.dottedSwiftName)(let l) = lhs, case \(f.dottedSwiftName)(let r) = rhs else { preconditionFailure() }\n",
-                "return l == r\n")
-          p.outdent()
-          p.print(
-                "}()\n")
-        }
-        if fields.count > 1 {
-            // A tricky edge case: If the oneof only has a single case, then
-            // the case pattern generated above is exhaustive and generating a
-            // default produces a compiler error. If there is more than one
-            // case, then the case patterns are not exhaustive (because we
-            // don't compare mismatched pairs), and we have to include a
-            // default.
-            p.print("default: return false\n")
-        }
-        p.print("}\n")
-        p.outdent()
-        p.print("}\n")
-        p.outdent()
-        p.print("#endif\n")
-        p.print("}\n")
-    }
-
-    func generateSendable(printer p: inout CodePrinter) {
-        // Once our minimum supported version has Data be Sendable, @unchecked could be removed.
-        p.print("extension \(swiftFullName): @unchecked Sendable {}\n")
+        p.print("}")
     }
 
     private func gerenateOneofEnumProperty(printer p: inout CodePrinter) {
         let visibility = generatorOptions.visibilitySourceSnippet
-        p.print("\n", comments)
-
+        p.print()
         if usesHeapStorage {
             p.print(
-              "\(visibility)var \(swiftFieldName): \(swiftRelativeName)? {\n")
-            p.indent()
-            p.print(
-              "get {return _storage.\(underscoreSwiftFieldName)}\n",
-              "set {_uniqueStorage().\(underscoreSwiftFieldName) = newValue}\n")
-            p.outdent()
-            p.print("}\n")
+                "\(comments)\(visibility)var \(swiftFieldName): \(swiftRelativeName)? {"
+            )
+            p.printIndented(
+                "get {return _storage.\(underscoreSwiftFieldName)}",
+                "set {_uniqueStorage().\(underscoreSwiftFieldName) = newValue}"
+            )
+            p.print("}")
         } else {
             p.print(
-              "\(visibility)var \(swiftFieldName): \(swiftFullName)? = nil\n")
+                "\(comments)\(visibility)var \(swiftFieldName): \(swiftFullName)? = nil"
+            )
         }
     }
 
@@ -323,33 +301,36 @@ class OneofGenerator {
     func generateInterface(printer p: inout CodePrinter, field: MemberFieldGenerator) {
         // First field causes the oneof enum to get generated.
         if field === fields.first {
-          gerenateOneofEnumProperty(printer: &p)
+            gerenateOneofEnumProperty(printer: &p)
         }
 
         let getter = usesHeapStorage ? "_storage.\(underscoreSwiftFieldName)" : swiftFieldName
         // Within `set` below, if the oneof name was "newValue" then it has to
         // be qualified with `self.` to avoid the collision with the setter
         // parameter.
-        let setter = usesHeapStorage ? "_uniqueStorage().\(underscoreSwiftFieldName)" : (swiftFieldName == "newValue" ? "self.newValue" : swiftFieldName)
+        let setter =
+            usesHeapStorage
+            ? "_uniqueStorage().\(underscoreSwiftFieldName)"
+            : (swiftFieldName == "newValue" ? "self.newValue" : swiftFieldName)
 
         let visibility = generatorOptions.visibilitySourceSnippet
 
         p.print(
-          "\n",
-          field.comments,
-          "\(visibility)var \(field.swiftName): \(field.swiftType) {\n")
-        p.indent()
-        p.print("get {\n")
-        p.indent()
-        p.print(
-          "if case \(field.dottedSwiftName)(let v)? = \(getter) {return v}\n",
-          "return \(field.swiftDefaultValue)\n")
-        p.outdent()
-        p.print(
-          "}\n",
-          "set {\(setter) = \(field.dottedSwiftName)(newValue)}\n")
-        p.outdent()
-        p.print("}\n")
+            "",
+            "\(field.comments)\(visibility)var \(field.swiftName): \(field.swiftType) {"
+        )
+        p.withIndentation { p in
+            p.print("get {")
+            p.printIndented(
+                "if case \(field.dottedSwiftName)(let v)? = \(getter) {return v}",
+                "return \(field.swiftDefaultValue)"
+            )
+            p.print(
+                "}",
+                "set {\(setter) = \(field.dottedSwiftName)(newValue)}"
+            )
+        }
+        p.print("}")
     }
 
     func generateStorage(printer p: inout CodePrinter, field: MemberFieldGenerator) {
@@ -357,9 +338,9 @@ class OneofGenerator {
         guard field === fields.first else { return }
 
         if usesHeapStorage {
-            p.print("var \(underscoreSwiftFieldName): \(swiftFullName)?\n")
+            p.print("var \(underscoreSwiftFieldName): \(swiftFullName)?")
         } else {
-            // When not using heap stroage, no extra storage is needed because
+            // When not using heap storage, no extra storage is needed because
             // the public property for the oneof is the storage.
         }
     }
@@ -368,47 +349,46 @@ class OneofGenerator {
         // First field causes the output.
         guard field === fields.first else { return }
 
-        p.print("\(underscoreSwiftFieldName) = source.\(underscoreSwiftFieldName)\n")
+        p.print("\(underscoreSwiftFieldName) = source.\(underscoreSwiftFieldName)")
     }
 
     func generateDecodeFieldCase(printer p: inout CodePrinter, field: MemberFieldGenerator) {
-        p.print("case \(field.number): try {\n")
-        p.indent()
+        p.print("case \(field.number): try {")
+        p.withIndentation { p in
+            let hadValueTest: String
+            if field.isGroupOrMessage {
+                // Messages need to fetch the current value so new fields are merged into the existing
+                // value
+                p.print(
+                    "var v: \(field.swiftType)?",
+                    "var hadOneofValue = false",
+                    "if let current = \(storedProperty) {"
+                )
+                p.printIndented(
+                    "hadOneofValue = true",
+                    "if case \(field.dottedSwiftName)(let m) = current {v = m}"
+                )
+                p.print("}")
+                hadValueTest = "hadOneofValue"
+            } else {
+                p.print("var v: \(field.swiftType)?")
+                hadValueTest = "\(storedProperty) != nil"
+            }
 
-        let hadValueTest: String
-        if field.isGroupOrMessage {
-            // Messages need to fetch the current value so new fields are merged into the existing
-            // value
             p.print(
-              "var v: \(field.swiftType)?\n",
-              "var hadOneofValue = false\n",
-              "if let current = \(storedProperty) {\n")
-            p.indent()
-            p.print(
-              "hadOneofValue = true\n",
-              "if case \(field.dottedSwiftName)(let m) = current {v = m}\n")
-            p.outdent()
-            p.print("}\n")
-            hadValueTest = "hadOneofValue"
-        } else {
-            p.print("var v: \(field.swiftType)?\n")
-            hadValueTest = "\(storedProperty) != nil"
+                "try decoder.decodeSingular\(field.protoGenericType)Field(value: &v)",
+                "if let v = v {"
+            )
+            p.printIndented(
+                "if \(hadValueTest) {try decoder.handleConflictingOneOf()}",
+                "\(storedProperty) = \(field.dottedSwiftName)(v)"
+            )
+            p.print("}")
         }
-
-        p.print(
-          "try decoder.decodeSingular\(field.protoGenericType)Field(value: &v)\n",
-          "if let v = v {\n")
-        p.indent()
-        p.print(
-          "if \(hadValueTest) {try decoder.handleConflictingOneOf()}\n",
-          "\(storedProperty) = \(field.dottedSwiftName)(v)\n")
-        p.outdent()
-        p.print("}\n")
-        p.outdent()
-        p.print("}()\n")
+        p.print("}()")
     }
 
-    var generateTraverseUsesLocals: Bool { return true }
+    var generateTraverseUsesLocals: Bool { true }
 
     func generateTraverse(printer p: inout CodePrinter, field: MemberFieldGenerator) {
         // First field in the group causes the output.
@@ -416,29 +396,29 @@ class OneofGenerator {
         guard field === group.first else { return }
 
         if group.count == 1 {
-            p.print("try { if case \(field.dottedSwiftName)(let v)? = \(storedProperty) {\n")
-            p.indent()
-            p.print("try visitor.visitSingular\(field.protoGenericType)Field(value: v, fieldNumber: \(field.number))\n")
-            p.outdent()
-            p.print("} }()\n")
+            p.print("try { if case \(field.dottedSwiftName)(let v)? = \(storedProperty) {")
+            p.printIndented(
+                "try visitor.visitSingular\(field.protoGenericType)Field(value: v, fieldNumber: \(field.number))"
+            )
+            p.print("} }()")
         } else {
-            p.print("switch \(storedProperty) {\n")
+            p.print("switch \(storedProperty) {")
             for f in group {
-                p.print("case \(f.dottedSwiftName)?: try {\n")
-                p.indent()
-                p.print("guard case \(f.dottedSwiftName)(let v)? = \(storedProperty) else { preconditionFailure() }\n")
-                p.print("try visitor.visitSingular\(f.protoGenericType)Field(value: v, fieldNumber: \(f.number))\n")
-                p.outdent()
-                p.print("}()\n")
+                p.print("case \(f.dottedSwiftName)?: try {")
+                p.printIndented(
+                    "guard case \(f.dottedSwiftName)(let v)? = \(storedProperty) else { preconditionFailure() }",
+                    "try visitor.visitSingular\(f.protoGenericType)Field(value: v, fieldNumber: \(f.number))"
+                )
+                p.print("}()")
             }
             if fieldSortedGrouped.count == 1 {
                 // Cover not being set.
-                p.print("case nil: break\n")
+                p.print("case nil: break")
             } else {
                 // Multiple groups, cover other cases (or not being set).
-                p.print("default: break\n")
+                p.print("default: break")
             }
-            p.print("}\n")
+            p.print("}")
         }
     }
 
@@ -449,14 +429,14 @@ class OneofGenerator {
         let lhsProperty: String
         let otherStoredProperty: String
         if usesHeapStorage {
-          lhsProperty = "_storage.\(underscoreSwiftFieldName)"
-          otherStoredProperty = "rhs_storage.\(underscoreSwiftFieldName)"
+            lhsProperty = "_storage.\(underscoreSwiftFieldName)"
+            otherStoredProperty = "rhs_storage.\(underscoreSwiftFieldName)"
         } else {
-          lhsProperty = "lhs.\(swiftFieldName)"
-          otherStoredProperty = "rhs.\(swiftFieldName)"
+            lhsProperty = "lhs.\(swiftFieldName)"
+            otherStoredProperty = "rhs.\(swiftFieldName)"
         }
 
-        p.print("if \(lhsProperty) != \(otherStoredProperty) {return false}\n")
+        p.print("if \(lhsProperty) != \(otherStoredProperty) {return false}")
     }
 
     func generateIsInitializedCheck(printer p: inout CodePrinter, field: MemberFieldGenerator) {
@@ -465,10 +445,10 @@ class OneofGenerator {
 
         // Confirm there is message field with required fields.
         let firstRequired = fields.first {
-            $0.isGroupOrMessage && $0.messageType.containsRequiredFields()
+            $0.isGroupOrMessage && $0.messageType!.containsRequiredFields()
         }
         guard firstRequired != nil else { return }
 
-        p.print("if let v = \(storedProperty), !v.isInitialized {return false}\n")
+        p.print("if let v = \(storedProperty), !v.isInitialized {return false}")
     }
 }
